@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>FBX → JSON 转换器（骨骼旋转 + 帧）</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 16px;
+    }
+    #log {
+      white-space: pre-wrap;
+      font-size: 13px;
+      background: #111;
+      color: #0f0;
+      padding: 10px;
+      margin-top: 12px;
+      max-height: 300px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2>FBX → JSON 转换器（骨骼旋转 + 帧）</h2>
+  <p>
+    选择一个或多个 <code>.fbx</code> 文件（比如 Mixamo 下载的）：
+    <input id="fbxInput" type="file" multiple accept=".fbx" />
+  </p>
+  <p>导出的 JSON 大致长这样：</p>
+  <pre>{
+  "name": "ClipName",
+  "fps": 30,
+  "bones": {
+    "RightHand": [
+      { "f": 0, "rot": [x, y, z, w] },
+      { "f": 1, "rot": [...] }
+    ],
+    "RightForeArm": [
+      { "f": 0, "rot": [...] }
+    ]
+  }
+}</pre>
+
+  <div id="log"></div>
+
+  <!-- 本地 three.js 和 FBXLoader：顺序一定要保持 three 在前 -->
+  <script src="three.min.js"></script>
+  <script src="FBXLoader.js"></script>
+
+  <script>
+    // 你们项目统一的 FPS（Mixamo 设置成 30，就写 30）
+    const DEFAULT_FPS = 30;
+
+    const logEl = document.getElementById("log");
+    function log(msg) {
+      console.log(msg);
+      logEl.textContent += msg + "\n";
+    }
+
+    // 把 AnimationClip 转成 { name, fps, bones: { boneName: [{f, rot:[x,y,z,w]}] } }
+    function clipToFrameRotJson(clip, fps = DEFAULT_FPS) {
+      const bones = {};
+
+      (clip.tracks || []).forEach(track => {
+        // 只要骨骼四元数轨迹：BoneName.quaternion
+        if (!track.name.endsWith(".quaternion")) return;
+
+        const boneName = track.name.replace(".quaternion", "");
+        const times = track.times;   // Float32Array: seconds
+        const values = track.values; // Float32Array: x,y,z,w,...
+
+        const frames = [];
+
+        for (let i = 0; i < times.length; i++) {
+          const t = times[i];
+          const frameIndex = Math.round(t * fps);  // 秒 → 帧
+
+          const base = i * 4;
+          const rot = [
+            values[base + 0],
+            values[base + 1],
+            values[base + 2],
+            values[base + 3],
+          ];
+
+          frames.push({ f: frameIndex, rot });
+        }
+
+        bones[boneName] = frames;
+      });
+
+      return {
+        name: clip.name || "",
+        fps,
+        bones
+      };
+    }
+
+    // 下载 JSON 文件
+    function downloadJson(obj, filename) {
+      const jsonStr = JSON.stringify(obj, null, 2);
+      const blob = new Blob([jsonStr, "\n"], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("fbxInput").addEventListener("change", async (e) => {
+      logEl.textContent = "";
+      const files = Array.from(e.target.files || []);
+      if (!files.length) {
+        log("未选择文件。");
+        return;
+      }
+
+      if (!window.THREE || !THREE.FBXLoader) {
+        log("❌ THREE.FBXLoader 未定义，请确认 three.min.js 和 FBXLoader.js 已正确加载。");
+        return;
+      }
+
+      log(`开始处理 ${files.length} 个 FBX 文件 ...\n`);
+
+      for (const file of files) {
+        log(`=== 处理文件: ${file.name} ===`);
+        const arrayBuffer = await file.arrayBuffer();
+
+        try {
+          const loader = new THREE.FBXLoader();
+
+          // ✅ 正确用法：parse 返回 object，同步的
+          let object;
+          try {
+            object = loader.parse(arrayBuffer, "");
+          } catch (err) {
+            log(`❌ 解析异常: ${err}`);
+            continue;
+          }
+
+          if (!object || !object.animations || object.animations.length === 0) {
+            log(`⚠️  ${file.name} 中没有找到 animations（可能是纯模型文件）`);
+            continue;
+          }
+
+          object.animations.forEach((clip, index) => {
+            log(`  - Clip[${index}]: name="${clip.name}", duration=${clip.duration.toFixed(3)}s, tracks=${clip.tracks.length}`);
+
+            const jsonData = clipToFrameRotJson(clip, DEFAULT_FPS);
+
+            const baseName = file.name.replace(/\.fbx$/i, "");
+            const clipName = (clip.name || `clip${index}`).replace(/[^\w\-]/g, "_");
+            const outName = `${baseName}__${clipName}_frames.json`;
+
+            downloadJson(jsonData, outName);
+            log(`  → 已导出为: ${outName}`);
+          });
+        } catch (err) {
+          log(`❌ ${file.name} 转换出错: ${err}`);
+        }
+
+        log(""); // 空行分隔
+      }
+
+      log("✅ 全部处理完成。");
+    });
+  </script>
+</body>
+</html>

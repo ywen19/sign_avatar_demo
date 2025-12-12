@@ -15,31 +15,53 @@
 </head>
 <body>
 
-<!-- three.js 非模块版 -->
 <script src="three.min.js"></script>
-<!-- GLTFLoader 非模块版 -->
 <script src="GLTFLoader.js"></script>
 
 <script>
+  console.log("DEBUG INDEX VERSION = 20250212_FULL");   // ← 每次我都会更新这个，用来验证你加载的是最新文件
+
+  //-----------------------------
+  // 全局 JS 错误捕获（非常重要）
+  //-----------------------------
+  window.addEventListener("error", function (e) {
+    console.error("Global JS error:", e.message, "@", e.filename + ":" + e.lineno);
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    console.error("Unhandled promise rejection:", e.reason);
+  });
+
   console.log("Page loaded. href =", window.location.href);
+  console.log("THREE version:", THREE.REVISION);
 
-  if (typeof THREE === "undefined") {
-    console.error("THREE is undefined. three.min.js may not be loaded correctly.");
-  } else {
-    console.log("THREE version:", THREE.REVISION);
-  }
-  if (!THREE.GLTFLoader) {
-    console.error("THREE.GLTFLoader is undefined. Check GLTFLoader.js.");
-  } else {
-    console.log("GLTFLoader detected.");
-  }
+  if (!THREE.GLTFLoader) console.error("GLTFLoader NOT detected!");
+  else console.log("GLTFLoader detected.");
 
+  //--------------------------------------
+  // Scene / Camera / Renderer
+  //--------------------------------------
   let scene, camera, renderer, avatar;
 
-  init();
-  loadModel();
-  animate();
+  // 动画 & 骨骼数据
+  let skeleton = null;
+  const boneNameMap = {};
 
+  let animData = null;
+  let poseFrames = {};
+  let maxFrame = 0;
+  let fps = 30;
+
+  const clock = new THREE.Clock();
+
+  // 归一化骨骼名：mixamorigHips → Hips
+  function normalizeBoneName(name) {
+    if (!name) return name;
+    return name.replace(/^mixamorig[:_]?/i, "");
+  }
+
+  //--------------------------------------
+  // 初始化场景
+  //--------------------------------------
   function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
@@ -50,7 +72,7 @@
       0.1,
       1000
     );
-    camera.position.set(0, 1.6, 3); // 初始给个大致位置
+    camera.position.set(0, 1.6, 3);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -58,7 +80,7 @@
     renderer.outputEncoding = THREE.sRGBEncoding;
     document.body.appendChild(renderer.domElement);
 
-    // 灯光：环境 + 方向光
+    // 环境光 + 方向光
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
     scene.add(hemi);
 
@@ -69,77 +91,189 @@
     window.addEventListener("resize", onWindowResize);
   }
 
+  //--------------------------------------
+  // 加载 GLB 模型
+  //--------------------------------------
   function loadModel() {
-    const modelUrl = new URL("model.glb", window.location.href).href;
-    console.log("Trying to load model from:", modelUrl);
+    const url = "model.glb";
+    console.log("Trying to load model from:", url);
 
     const loader = new THREE.GLTFLoader();
 
     loader.load(
-      modelUrl,
+      url,
       function (gltf) {
         avatar = gltf.scene;
 
-        // 1) 放大模型到合适大小（你的 glb 很小）
         avatar.scale.set(100, 100, 100);
-
-        // 先加入场景，便于计算包围盒
         scene.add(avatar);
 
-        // 2) 让模型中心移到世界原点附近
+        // center model
         const bbox = new THREE.Box3().setFromObject(avatar);
         const size = new THREE.Vector3();
         const center = new THREE.Vector3();
         bbox.getSize(size);
         bbox.getCenter(center);
 
-        console.log("Model bbox size:", size.x, size.y, size.z);
-        console.log("Model bbox center:", center.x, center.y, center.z);
+        console.log("Model bbox size:", size);
+        console.log("Model bbox center:", center);
 
-        // 把模型中心平移到 (0,0,0) 附近
         avatar.position.sub(center);
 
-        // 3) 固定一个 camera 机位 + 观察点（显示整个人物）
-        const targetY = 8.0;        // 角色身体中上部高度
-        const distance = 23.0;       // 离角色的距离，越大越远
+        const targetY = 8.0;
+        const distance = 23.0;
 
         camera.position.set(0, targetY, distance);
         camera.lookAt(0, targetY, 0);
 
-        console.log("Camera set to:", camera.position.x, camera.position.y, camera.position.z);
         console.log("GLB loaded successfully.");
-      },
-      function (xhr) {
-        if (xhr && xhr.total) {
-          const percent = (xhr.loaded / xhr.total * 100).toFixed(2);
-          console.log("Loading model... " + percent + "%");
+
+        // 寻找 skeleton
+        avatar.traverse((obj) => {
+          if (obj.isSkinnedMesh && !skeleton) {
+            skeleton = obj.skeleton;
+          }
+        });
+
+        if (!skeleton) {
+          console.warn("No skeleton found!");
         } else {
-          console.log("Loading model... (no total size)");
+          skeleton.bones.forEach((bone) => {
+            const key = normalizeBoneName(bone.name);
+            boneNameMap[key] = bone;
+          });
+          console.log("Skeleton bones normalized:", Object.keys(boneNameMap));
         }
       },
+      undefined,
       function (err) {
         console.error("GLB load failed:", err);
-        alert("GLB load failed. See Python console for details.");
       }
     );
   }
 
+  //--------------------------------------
+  // 加载 JSON 动画
+  //--------------------------------------
+  function loadAnimation() {
+    console.log("loadAnimation() CALLED");
+
+    const jsonUrl = "Dancing_mixamo_com_frames.json";
+    console.log("Loading JSON animation from:", jsonUrl);
+
+    fetch(jsonUrl)
+      .then(res => {
+        console.log("JSON fetch status =", res.status);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log("JSON animation loaded OK.");
+        animData = data;
+        fps = data.fps || fps;
+        preparePoseFrames(data);
+      })
+      .catch(err => {
+        console.error("Load JSON animation failed:", err);
+      });
+  }
+
+  //--------------------------------------
+  // 预处理 JSON 动画（按帧存储四元数）
+  //--------------------------------------
+  function preparePoseFrames(data) {
+    poseFrames = {};
+    maxFrame = 0;
+
+    for (const name in data.bones) {
+      const arr = [];
+      const keyframes = data.bones[name];
+
+      keyframes.forEach(k => {
+        arr[k.f] = new THREE.Quaternion(
+          k.rot[0],
+          k.rot[1],
+          k.rot[2],
+          k.rot[3]
+        );
+        if (k.f > maxFrame) maxFrame = k.f;
+      });
+
+      const norm = normalizeBoneName(name);
+      poseFrames[norm] = arr;
+    }
+
+    console.log("Prepared JSON animation. fps =", fps, "maxFrame =", maxFrame);
+  }
+
+  //--------------------------------------
+  // 动画更新
+  //--------------------------------------
+  function updateAnimation(dt) {
+    if (!avatar || !animData || !skeleton) return;
+
+    if (updateAnimation.time === undefined) updateAnimation.time = 0;
+    updateAnimation.time += dt;
+
+    const totalFrames = maxFrame + 1;
+    const currentFrame = Math.floor((updateAnimation.time * fps) % totalFrames);
+
+    for (const name in poseFrames) {
+      const bone = boneNameMap[name];
+      if (!bone) continue;
+
+      const q = poseFrames[name][currentFrame];
+      if (!q) continue;
+
+      bone.quaternion.copy(q);
+    }
+
+    avatar.updateMatrixWorld(true);
+  }
+
+  //--------------------------------------
+  // render loop
+  //--------------------------------------
   function animate() {
     requestAnimationFrame(animate);
 
-    // if (avatar) {
-      // 轻微旋转，方便展示
-      // avatar.rotation.y += 0.003;
-    // }
+    const dt = clock.getDelta();
 
+    // ==== 新增：统计实际渲染 FPS（Qt UI 里真实帧率）====
+    if (!animate._frameCount) {
+      animate._frameCount = 0;
+      animate._timeAccum = 0;
+    }
+    animate._frameCount++;
+    animate._timeAccum += dt;
+
+    // 每 30 帧统计一次平均 FPS，避免刷屏
+    if (animate._frameCount >= 30) {
+      const avgFps = (animate._frameCount / animate._timeAccum).toFixed(1);
+      console.log("Qt UI Render FPS (avg):", avgFps);
+      animate._frameCount = 0;
+      animate._timeAccum = 0;
+    }
+    // ==================================================
+
+    updateAnimation(dt);
     renderer.render(scene, camera);
   }
+
 
   function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
+
+  //--------------------------------------
+  // RUN
+  //--------------------------------------
+  init();
+  loadModel();
+  loadAnimation();
+  animate();
 </script>
 
 </body>

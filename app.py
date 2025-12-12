@@ -3,10 +3,11 @@ import os
 import threading
 import http.server
 import socketserver
+import time  # ★ 新增：用来生成不重复的 query
 
 from PyQt5 import uic
 from PyQt5.QtWidgets import QApplication, QWidget, QFrame, QVBoxLayout
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile  # ★ 新增 QWebEngineProfile
 from PyQt5.QtCore import QUrl, Qt
 
 from camera_widget import CameraWidget
@@ -15,8 +16,9 @@ from camera_widget import CameraWidget
 def start_server(web_dir):
     """启动本地 HTTP 服务器，根目录为 web_dir"""
     Handler = http.server.SimpleHTTPRequestHandler
-    httpd = socketserver.TCPServer(("127.0.0.1", 8000), Handler)
     os.chdir(web_dir)  # 在 server 线程里修改当前目录
+    httpd = socketserver.TCPServer(("127.0.0.1", 8000), Handler)
+    print(f"Serving HTTP on 127.0.0.1:8000, root = {web_dir}")
     httpd.serve_forever()
 
 
@@ -52,12 +54,19 @@ class MyApp(QWidget):
         debug_page = DebugWebPage(self.web_view)
         self.web_view.setPage(debug_page)
 
+        # ★★ 关键：关闭 WebEngine 缓存，避免一直用旧的 index.html ★★
+        profile: QWebEngineProfile = self.web_view.page().profile()
+        profile.setHttpCacheType(QWebEngineProfile.NoCache)
+        profile.clearHttpCache()
+
+        # 每次加载 index.html 时加一个不同的 query，强制绕过所有缓存
+        url_str = f"http://127.0.0.1:8000/index.html?v={time.time()}"
+        print("Loading index.html with url:", url_str)
+        self.web_view.load(QUrl(url_str))
+
         motion_layout = QVBoxLayout(self.motion_frame)
         motion_layout.setContentsMargins(0, 0, 0, 0)
         motion_layout.addWidget(self.web_view)
-
-        # 加载 index.html（通过本地 HTTP 服务器）
-        self.web_view.load(QUrl("http://127.0.0.1:8000/index.html?v=glb1"))
 
     def keyPressEvent(self, event):
         """这里只保留按键事件占位，方便后续你要加别的快捷键"""

@@ -1,5 +1,6 @@
 import sys
 import os
+import subprocess
 import threading
 import http.server
 import socketserver
@@ -77,6 +78,18 @@ class MyApp(QWidget):
 
 
 if __name__ == "__main__":
+    main_pid = os.getpid()
+    print("PID:", main_pid)
+    monitor_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "pc_test",
+        "monitor_process.py"
+    )
+    subprocess.Popen([
+        sys.executable,  # 当前 python
+        monitor_path,  # 监控脚本
+        str(main_pid)
+    ])
     # 启动本地 HTTP 服务器，目录为当前文件所在目录下的 web/
     web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
     threading.Thread(target=start_server, args=(web_dir,), daemon=True).start()

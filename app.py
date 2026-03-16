@@ -5,8 +5,10 @@ from PyQt6 import uic
 from PyQt6.QtWidgets import QApplication, QWidget, QFrame, QVBoxLayout
 from PyQt6.QtQuickWidgets import QQuickWidget
 from PyQt6.QtCore import Qt, QCoreApplication, QUrl
+from PyQt6.QtQml import QQmlContext
 
 # from camera_widget import CameraWidget
+from anim_controller import AnimationController
 
 
 class MyApp(QWidget):
@@ -41,12 +43,30 @@ class MyApp(QWidget):
         self.quick_widget = QQuickWidget(self.display_frame)
         self.quick_widget.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
 
+        json_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "web",
+            "Dancing_mixamo_com_frames_nomix.json"
+        )
+
+        self.anim_controller = AnimationController(
+            json_path=json_path,
+            bone_name="Hips"
+        )
+
+        self.quick_widget.rootContext().setContextProperty(
+            "animController",
+            self.anim_controller
+        )
+
         qml_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "qml",
             "Main.qml"
         )
         self.quick_widget.setSource(QUrl.fromLocalFile(qml_path))
+
+        self.anim_controller.start()
         self.display_layout.addWidget(self.quick_widget)
 
 

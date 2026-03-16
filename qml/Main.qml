@@ -17,7 +17,7 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 80, 900)
+            position: Qt.vector3d(0, 0, 300)
             eulerRotation.x: -5
             clipNear: 1
             clipFar: 5000
@@ -27,18 +27,6 @@ Rectangle {
             eulerRotation.x: -30
             eulerRotation.y: -30
             brightness: 1.5
-        }
-
-        // 左边蓝色静态 cube
-        Model {
-            id: staticCube
-            source: "#Cube"
-            position: Qt.vector3d(-260, 0, 0)
-            scale: Qt.vector3d(1.5, 1.5, 1.5)
-
-            materials: DefaultMaterial {
-                diffuseColor: "blue"
-            }
         }
 
         // 中间 avatar
@@ -124,23 +112,6 @@ Rectangle {
             }
         }
 
-        // 右边红色动态 cube（证明 animController 数据流正常）
-        Node {
-            id: testNode
-            position: Qt.vector3d(260, 0, 0)
-
-            property var q: animController.currentQuat
-            rotation: Qt.quaternion(q[3], q[0], q[1], q[2])
-
-            Model {
-                source: "#Cube"
-                scale: Qt.vector3d(1.5, 1.5, 1.5)
-
-                materials: DefaultMaterial {
-                    diffuseColor: "red"
-                }
-            }
-        }
 
         // 用 animController.currentQuat 驱动 avatar 的 joint[0]（Hips）
         Timer {
@@ -150,11 +121,16 @@ Rectangle {
 
             onTriggered: {
                 try {
-                    var j = avatar.jointsArray[0]   // Hips -> joint[0]
-                    var q = animController.currentQuat
+                    var allQuats = animController.currentJointQuats
+                    var n = Math.min(avatar.jointsArray.length, allQuats.length)
 
-                    if (j && q && q.length === 4) {
-                        j.rotation = Qt.quaternion(q[3], q[0], q[1], q[2])
+                    for (var i = 0; i < n; ++i) {
+                        var j = avatar.jointsArray[i]
+                        var q = allQuats[i]
+
+                        if (j && q && q.length === 4) {
+                            j.rotation = Qt.quaternion(q[3], q[0], q[1], q[2])
+                        }
                     }
                 } catch(e) {
                     console.log("joint anim error:", e)

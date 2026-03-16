@@ -49,11 +49,18 @@ class MyApp(QWidget):
             "Dancing_mixamo_com_frames_nomix.json"
         )
 
-        self.anim_controller = AnimationController(
-            json_path=json_path,
-            bone_name="Hips"
+        mapping_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "web",
+            "model_joint_mapping.json"
         )
 
+        self.anim_controller = AnimationController(
+            json_path=json_path,
+            mapping_path=mapping_path,
+            bone_name="Hips"
+        )
+        
         self.quick_widget.rootContext().setContextProperty(
             "animController",
             self.anim_controller

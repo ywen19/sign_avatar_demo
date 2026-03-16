@@ -15,8 +15,8 @@
 </head>
 <body>
 
-<script src="three.min.js"></script>
-<script src="GLTFLoader.js"></script>
+<script src="/three.min.js"></script>
+<script src="/GLTFLoader.js"></script>
 
 <script>
   console.log("DEBUG INDEX VERSION = 20250212_FULL");   // ← 每次我都会更新这个，用来验证你加载的是最新文件
@@ -32,15 +32,33 @@
   });
 
   console.log("Page loaded. href =", window.location.href);
-  console.log("THREE version:", THREE.REVISION);
+  
+  // console.log("THREE version:", THREE.REVISION);
+  // if (!THREE.GLTFLoader) console.error("GLTFLoader NOT detected!");
+  // else console.log("GLTFLoader detected.");
 
-  if (!THREE.GLTFLoader) console.error("GLTFLoader NOT detected!");
-  else console.log("GLTFLoader detected.");
+  if (typeof THREE === "undefined") {
+    console.error("THREE failed to load.");
+  } else {
+    console.log("THREE version:", THREE.REVISION);
+
+    if (!THREE.GLTFLoader) console.error("GLTFLoader NOT detected!");
+    else console.log("GLTFLoader detected.");
+  } 
+
+  window.addEventListener("error", function (e) {
+    console.error("Global JS error:", e.message, "@", e.filename + ":" + e.lineno);
+  });
+
+  window.addEventListener("unhandledrejection", function (e) {
+    console.error("Unhandled promise rejection:", e.reason);
+  });
 
   //--------------------------------------
   // Scene / Camera / Renderer
   //--------------------------------------
   let scene, camera, renderer, avatar;
+  
 
   // 动画 & 骨骼数据
   let skeleton = null;
@@ -50,8 +68,8 @@
   let poseFrames = {};
   let maxFrame = 0;
   let fps = 30;
-
-  const clock = new THREE.Clock();
+  // const clock = new THREE.Clock();
+  let clock = null;
 
   // 归一化骨骼名：mixamorigHips → Hips
   function normalizeBoneName(name) {
@@ -270,10 +288,30 @@
   //--------------------------------------
   // RUN
   //--------------------------------------
-  init();
-  loadModel();
-  loadAnimation();
-  animate();
+  window.addEventListener("load", function () {
+    console.log("Page loaded. href =", window.location.href);
+
+    if (typeof THREE === "undefined") {
+      console.error("Abort startup: THREE is undefined");
+      return;
+    }
+
+    console.log("THREE version:", THREE.REVISION);
+
+    if (!THREE.GLTFLoader) {
+      console.error("Abort startup: GLTFLoader is undefined");
+      return;
+    }
+
+    console.log("GLTFLoader detected.");
+
+    clock = new THREE.Clock();
+
+    init();
+    loadModel();
+    loadAnimation();
+    animate();
+  });
 </script>
 
 </body>
